@@ -120,15 +120,19 @@ class TiktokenTokenizer(TokenizerSpec):
         for key, value in self.id2token.items():
             self.shifted_id2token[key + self.num_special_tokens] = value
 
+        self.shifted_token2id = {bytes(tok, "utf-8"): i for i, tok in enumerate(self.special_tokens)}
+        for key, value in self.token2id.items():
+            self.shifted_token2id[key] = value + self.num_special_tokens
+
         self.tokenizer = tiktoken.Encoding(
             name=Path(vocab_file).parent.name,
             pat_str=pattern,
-            mergeable_ranks=self.token2id,
-            special_tokens={},  # special tokens are handled manually
+            mergeable_ranks=self.shifted_token2id,
+            special_tokens={tok: i for i, tok in enumerate(self.special_tokens)},  # special tokens are handled manually
         )
 
     def text_to_tokens(self, text: str):
-        token_ids = self.tokenizer.encode(text)
+        token_ids = self.tokenizer.encode(text, allowed_special=set(self.special_tokens))
         return [self.tokenizer.decode_single_token_bytes(token) for token in token_ids]
 
     def tokens_to_text(self, tokens: List[int]):
@@ -144,32 +148,16 @@ class TiktokenTokenizer(TokenizerSpec):
     def ids_to_tokens(self, token_ids):
         tokens = []
         for token_id in token_ids:
-            if token_id < self.num_special_tokens:
-                tokens.append(self.special_tokens[token_id])
-            else:
-                token_id -= self.num_special_tokens
-                token_bytes = self.tokenizer.decode_single_token_bytes(token_id)
-                tokens.append(token_bytes.decode('utf-8', errors='replace'))
+            token_bytes = self.tokenizer.decode_single_token_bytes(token_id)
+            tokens.append(token_bytes.decode('utf-8', errors='replace'))
         return tokens
 
     def text_to_ids(self, text: str):
-        tokens = self.tokenizer.encode(text)
-        tokens = [t + self.num_special_tokens for t in tokens]
+        tokens = self.tokenizer.encode(text, allowed_special=set(self.special_tokens))
         return tokens
 
     def ids_to_text(self, tokens: List[int]):
-        # Filter out special tokens and adjust the remaining tokens
-        adjusted_tokens = [
-            t - self.num_special_tokens
-            for t in tokens
-            if t not in {self.bos, self.eos} and t >= self.num_special_tokens
-        ]
-
-        # Decode only if there are tokens left after filtering
-        if adjusted_tokens:
-            return self.tokenizer.decode(adjusted_tokens)
-        else:
-            return ""  # Return an empty string if all tokens were filtered out
+        return self.tokenizer.decode(tokens)
 
     @property
     def bos_id(self):
